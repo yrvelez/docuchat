@@ -4,7 +4,7 @@ DocuChat is a chat application that allows users to communicate with a document.
 
 ## Technology
 
-DocuChat is built using HTML, PHP, and JavaScript. The front-end of the application is built using HTML/JS. The back-end of the application is built using PHP, allowing for server-side processing and storage of the local embeddings. The local embeddings are stored as JSON output inside the browser, providing fast and efficient storage and retrieval of the embeddings.
+DocuChat is built using HTML, PHP, and JavaScript. The front-end of the application is built using HTML/JS. The back-end of the application is built using PHP. The local embeddings are stored as JSON output inside the browser, providing fast and efficient storage and retrieval of the embeddings.
 
 ## Requirements
 
