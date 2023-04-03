@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>DocuChat</title>
+    <link rel="stylesheet" type="text/css" href="style.css">
+</head>
+
+<body>
+    <div id="chatbot-container">
+        <!-- Element to display the chat history -->
+        <div id="upload">
+            <form action="process_pdf.php" method="post" enctype="multipart/form-data">
+                Upload a PDF file (&lt; 20 pages) to start a conversation:<br>
+                <input type="file" name="pdf" id="pdf" accept="application/pdf"><br>
+                <div class="button-container">
+                    <input type="submit" value="Upload">
+                </div>
+                <div class="loading-spinner" id="loading-spinner" style="display: none;">
+                 <img src = "https://static.wixstatic.com/media/369c26_b396f2977e5a40839e2fc77a6f9aac2b~mv2.gif" width = 5%>
+                </div>
+            </form>
+        </div>
+
+        <ul id="chatbot-history">
+            <!-- Placeholder for the history items -->
+        </ul>
+        <!-- Element to display the response from the PHP script -->
+        <div id="response"></div>
+        <!-- Form to input the message and submit the request -->
+        <form id="chatbot-form">
+            <!-- Input field for the message -->
+            <input type="text" id="message-input" placeholder="Ask any question about the document.">
+            <input type="hidden" id="user-id" value="<?php echo $_GET['user_id']; ?>">
+            <!-- Button to submit the message -->
+            <button id="submit-button">Send</button>
+        </form>
+    </div>
+<script>
+        const processPdf = async (file) => {
+        const formData = new FormData();
+        formData.append('pdf', file);
+
+        const response = await fetch('process_pdf.php', {
+            method: 'POST',
+            body: formData
+        });
+
+        if (response.ok) {
+            return await response.json();
+        } else {
+            throw new Error('An error occurred while processing the PDF.');
+        }
+    };
+
+    const getEmbedding = async (text) => {
+        const response = await fetch('get_embedding.php', {
+            method: 'POST',
+            body: JSON.stringify({ text: text }),
+            headers: {
+                'Content-Type': 'application/json'
+            }
+        });
+
+        if (response.ok) {
+            return await response.json();
+        } else {
+            throw new Error('An error occurred while fetching the embedding.');
+        }
+    };
+
+    const findNearestNeighbors = (queryEmbedding, chunks, numNeighbors = 5) => {
+    let bestMatches = [];
+
+    chunks.forEach((chunk, index) => {
+        const chunkEmbedding = chunk.embedding;
+        const score = dotProduct(queryEmbedding, chunkEmbedding);
+
+        if (bestMatches.length < numNeighbors || score > bestMatches[bestMatches.length - 1].score) {
+            const newMatch = { index, score };
+
+            if (bestMatches.length < numNeighbors) {
+                bestMatches.push(newMatch);
+            } else {
+                bestMatches[bestMatches.length - 1] = newMatch;
+            }
+
+            bestMatches.sort((a, b) => b.score - a.score);
+        }
+    });
+
+    return bestMatches.map(match => chunks[match.index]);
+};
+
+
+    const dotProduct = (a, b) => {
+        return a.reduce((sum, ai, i) => sum + ai * b[i], 0);
+    };
+
+    const generateHints = async (chunk) => {
+    const response = await fetch('get_hints.php', {
+        method: 'POST',
+        body: JSON.stringify({ text: chunk }),
+        headers: {
+            'Content-Type': 'application/json'
+        }
+    });
+
+    if (response.ok) {
+        return await response.json();
+    } else {
+        throw new Error('An error occurred while fetching the hints.');
+    }
+};   
+
+document.querySelector('form').addEventListener('submit', async (event) => {
+    event.preventDefault();
+
+    try {
+        
+        const file = event.target.elements.pdf.files[0];
+        document.getElementById('loading-spinner').style.display = 'block';
+
+        const chunks = await processPdf(file);
+
+        document.getElementById('loading-spinner').style.display = 'none';
+
+        let messageInput = document.getElementById('message-input');
+        let submitButton = document.getElementById('submit-button');
+
+        let chatbotForm = document.getElementById('chatbot-form');
+        let chatbotHistory = document.getElementById('chatbot-history');
+
+        let hints = [];
+        let hintIndex = 0;
+
+        // Get a random chunk
+        const randomChunk = chunks[0].content;
+        hints = await generateHints(randomChunk);
+
+        if (hints.length > 0) {
+            messageInput.placeholder = hints[hintIndex];
+            hintIndex = (hintIndex + 1) % hints.length;
+        } else {
+            messageInput.placeholder = "Type your message here";
+        }
+
+        // Change the hint when the user clicks on the input field
+        messageInput.addEventListener('focus', () => {
+            if (hints.length > 0) {
+                messageInput.placeholder = hints[hintIndex];
+                hintIndex = (hintIndex + 1) % hints.length;
+            }
+        });
+
+        // Change the hint when the user clicks outside the input field
+        messageInput.addEventListener('blur', () => {
+            if (hints.length > 0) {
+                messageInput.placeholder = hints[hintIndex];
+                hintIndex = (hintIndex + 1) % hints.length;
+            } else {
+                messageInput.placeholder = "Type your message here";
+            }
+        });
+        
+        chatbotForm.addEventListener('submit', async (event) => {
+
+            event.preventDefault();
+            let message = messageInput.value;
+            let historyItem = document.createElement('li');
+            let userMessage = document.createElement('div');
+            userMessage.innerText = message;
+            userMessage.id = 'chatbot-history-user';
+            historyItem.appendChild(userMessage);
+            chatbotHistory.appendChild(historyItem);
+            messageInput.value = '';
+
+            const query = message;
+            const queryEmbedding = await getEmbedding(query);
+            const nearestNeighbors = findNearestNeighbors(queryEmbedding, chunks);
+
+            const hints = await generateHints(query); // Get hints for the current message
+
+            const postData = {
+                question: query,
+                neighbors: nearestNeighbors
+            };
+
+            fetch('get_summary.php', { 
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(postData)
+            })
+            .then(response => response.json())
+            .then(data => {
+                const summary = data.summary;
+                let botResponse = document.createElement('div');
+                botResponse.innerHTML = summary;
+                botResponse.id = 'chatbot-history-response';
+                historyItem.appendChild(botResponse);
+
+                messageInput.placeholder = "Type your message here"; // Reset the input field's placeholder after receiving the bot response
+            })
+            .catch(error => {
+                console.error('An error occurred while fetching the summary:', error);
+            });
+        });
+    } catch (error) {
+        // Handle the error appropriately
+    }
+});
+
+</script>
+<script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+</body>
+</html>
