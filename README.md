@@ -30,4 +30,4 @@ Open the application in a web browser.
 
 ## Credits
 
-DocuChat was developed by Yamil Ricardo Velez. It uses the OpenAI API for text embeddings.
+DocuChat was developed by Yamil Ricardo Velez. It uses OpenAI's API for text embeddings and chat functionality.
